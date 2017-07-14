@@ -9,13 +9,17 @@ class BBTrainer(object):
     Train a model to predict bounding boxes and semantic information from 
     images.
     """
-    def __init__(self, model, dataloader):
+    def __init__(self, model, dataloader, cuda=True, lr=0.001):
         self.epoch = 0
         self.model = model
         self.dataloader = dataloader
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=0.001)
+                self.model.parameters(), lr=lr)
+        self.cuda = cuda
+
+        if self.cuda:
+            self.model = self.model.cuda()
 
     def train(self, epochs):
         # TODO need to come up with loss function, optimization method, etc. 
@@ -38,6 +42,9 @@ class BBTrainer(object):
         x, y = data
         x = ag.Variable(x)
         y = ag.Variable(y)
+        if self.cuda:
+            x = x.cuda()
+            y = y.cuda()
         pred = self.model(x)
         err = self.criterion(pred, y)
         err.backward()
@@ -48,7 +55,8 @@ class CtxBB(nn.Module):
     # TODO this model will be changed to predict bounding boxes for objects.
     def __init__(self):
         super(CtxBB, self).__init__()
-        self.layer = nn.Linear(256 * 256 * 3, 4)
+        self.layer = nn.Linear(128 * 128 * 3, 1)
 
     def forward(self, image):
-        return self.layer(image.view(-1, 256 * 256 * 3))
+        ret = self.layer(image.view(-1, 128 * 128 * 3))
+        return ret

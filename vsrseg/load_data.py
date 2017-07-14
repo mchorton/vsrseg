@@ -34,7 +34,9 @@ class VCocoBoxes(dsets.coco.CocoDetection):
     Subclass of CocoDetection dataset offered by pytorch's torchvision library
     https://github.com/pytorch/vision/blob/master/torchvision/datasets/coco.py
     """
-    def __init__(self, vcoco_set, root, transform=None, target_transform=None):
+    def __init__(
+            self, vcoco_set, root, transform=None, coco_transform=None, 
+            combined_transform=None):
         # Don't call the superconstructor (we don't have an annFile)
         self.root = root
         self.coco = vu.load_coco()
@@ -42,7 +44,8 @@ class VCocoBoxes(dsets.coco.CocoDetection):
         # If we don't convert to int, COCO library index lookup fails :(
         self.ids = [int(x) for x in self.vcoco_all[0]["image_id"].ravel()]
         self.transform = transform
-        self.target_transform = target_transform
+        self.target_transform = coco_transform
+        self.combined_transform = combined_transform
 
         # Get per-image vcoco labels, indexed by image id.
         self.imgid_2_vcoco = get_imgid_2_vcoco_labels(self.vcoco_all, self.coco)
@@ -51,4 +54,7 @@ class VCocoBoxes(dsets.coco.CocoDetection):
         img_id = self.ids[index]
         vcoco_ann = self.imgid_2_vcoco[img_id]
         img, coco_ann = super(VCocoBoxes, self).__getitem__(index)
-        return (img, (coco_ann, vcoco_ann))
+        target = (coco_ann, vcoco_ann)
+        if self.combined_transform is not None:
+            target = self.combined_transform(target)
+        return (img, target)
