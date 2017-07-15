@@ -1,8 +1,12 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.autograd as ag
+import torchvision as tv
 
 import utils.mylogger as logging
+
+IMSIZE = (224, 224) # width, height
 
 class BBTrainer(object):
     """
@@ -55,8 +59,26 @@ class CtxBB(nn.Module):
     # TODO this model will be changed to predict bounding boxes for objects.
     def __init__(self):
         super(CtxBB, self).__init__()
-        self.layer = nn.Linear(128 * 128 * 3, 1)
+        self.resnet = tv.models.resnet18(pretrained=True)
+        self.layer = nn.Linear(1000, 1)
+
+    def get_features(self, image):
+        x = self.resnet.conv1(image)
+        x = self.resnet.bn1(x)
+        x = self.resnet.relu(x)
+        x = self.resnet.maxpool(x)
+
+        x = self.resnet.layer1(x)
+        x = self.resnet.layer2(x)
+        x = self.resnet.layer3(x)
+        x = self.resnet.layer4(x)
+
+        x = self.resnet.avgpool(x)
+
+        return x
 
     def forward(self, image):
-        ret = self.layer(image.view(-1, 128 * 128 * 3))
-        return ret
+        ret = self.get_features(image)
+        ret = ret.view(ret.size(0), -1)
+        ret = self.resnet.fc(ret)
+        return F.sigmoid(self.layer(ret))

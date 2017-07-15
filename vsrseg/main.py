@@ -12,7 +12,7 @@ import load_data as ld
 def get_loader(vcoco_set, coco_dir):
     # TODO need to update to get tt.Scale class.
     transforms = tt.Compose([
-            tt.CenterCrop([128, 128]),
+            tt.Scale(md.IMSIZE),
             tt.ToTensor(),
         ])
     targ_trans = lambda y: torch.Tensor(y[1]["throw"]["label"])
