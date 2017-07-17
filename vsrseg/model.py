@@ -3,8 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as ag
 import torchvision as tv
+import tensorflow as tf
 
 import utils.mylogger as logging
+import utils.methods as mt
 
 IMSIZE = (224, 224) # width, height
 
@@ -13,7 +15,7 @@ class BBTrainer(object):
     Train a model to predict bounding boxes and semantic information from 
     images.
     """
-    def __init__(self, model, dataloader, cuda=True, lr=0.001):
+    def __init__(self, model, dataloader, cuda=True, lr=0.001, log_dir=None):
         self.epoch = 0
         self.model = model
         self.dataloader = dataloader
@@ -24,6 +26,10 @@ class BBTrainer(object):
 
         if self.cuda:
             self.model = self.model.cuda()
+
+        self.log_dir = log_dir
+        if self.log_dir is not None:
+            self.train_writer = tf.summary.FileWriter(self.log_dir + "/train")
 
     def train(self, epochs):
         # TODO need to come up with loss function, optimization method, etc. 
@@ -38,6 +44,14 @@ class BBTrainer(object):
             # Make a full pass over the training set.
             for i, data in enumerate(self.dataloader):
                 history.append(self.handle_batch(data))
+            if mt.should_do(self.epoch, 1) and (self.log_dir is not None):
+                err = sum(history) / len(history)
+                summary = tf.Summary(value=[
+                        tf.Summary.Value(tag="error", simple_value=err),
+                        tf.Summary.Value(tag="epoch", simple_value=self.epoch)])
+                self.train_writer.add_summary(summary, self.epoch)
+
+
             logging.getLogger(__name__).info(
                     "---> Epoch %d: Loss=%.8f" % (
                             self.epoch, sum(history)/len(history)))
