@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as ag
 import torchvision as tv
+import torchvision.transforms as tt
 import tensorflow as tf
 
 import utils.mylogger as logging
@@ -46,14 +47,15 @@ class BBTrainer(object):
                 history.append(self.handle_batch(data))
             if mt.should_do(self.epoch, 1) and (self.log_dir is not None):
                 err = sum(history) / len(history)
-                summary = tf.Summary(value=[
+                values = [
                         tf.Summary.Value(tag="error", simple_value=err),
-                        tf.Summary.Value(tag="epoch", simple_value=self.epoch)])
-                self.train_writer.add_summary(summary, self.epoch)
-
+                    ]
+                values += self.model.get_summary_values()
+                summary = tf.Summary(value=values)
+                self.train_writer.add_summary(summary, self.epoch + 1)
 
             logging.getLogger(__name__).info(
-                    "---> Epoch %d: Loss=%.8f" % (
+                    "---> After Epoch #%d: Loss=%.8f" % (
                             self.epoch, sum(history)/len(history)))
 
     def handle_batch(self, data):
@@ -96,3 +98,45 @@ class CtxBB(nn.Module):
         ret = ret.view(ret.size(0), -1)
         ret = self.resnet.fc(ret)
         return F.sigmoid(self.layer(ret))
+
+    def get_summary_values(self):
+        # Visualize the first convolutional filter
+        # this is a 3d tensor (depth x width x height)
+        filter_tensor = self.resnet.conv1.weight[0]
+        width, height = filter_tensor.size()[1:]
+        pilimage = tt.ToPILImage()(filter_tensor.data.cpu())
+        img_bytes = mt.pil_2_bytes(pilimage)
+
+        img = tf.Summary.Image(width=width, height=height, colorspace=3,
+                encoded_image_string=img_bytes) # TODO wrong.
+        img_value = tf.Summary.Value(tag="First Filter", image=img)
+        ret = [img_value]
+
+        # Get the magnitude of updates of weights in the last layer.
+        if hasattr(self, "prev_weights"):
+            cur_diff = self.layer.weight - self.prev_weights
+            update_mag = torch.norm(cur_diff)
+            ret.append(tf.Summary.Value(
+                    tag="update_mag", simple_value=update_mag.data[0]))
+
+            # calculate the agreement between the last vector and this vector.
+            agreement = mt.cos_angle_var(self.layer.weight, self.prev_weights)
+            ret.append(tf.Summary.Value(
+                    tag="cos(theta) of weights", simple_value=agreement))
+
+            if hasattr(self, "prev_diff"):
+                # calculate the agreement between the last and cur. updates
+                agreement = mt.cos_angle_var(cur_diff, self.prev_diff)
+                ret.append(tf.Summary.Value(
+                    tag="cos(theta) of updates", simple_value=agreement))
+            self.prev_diff = cur_diff
+        self.prev_weights = self.layer.weight.clone()
+
+        ret.append(tf.Summary.Value(
+                tag="sanity_0s", simple_value=mt.cos_angle(torch.ones(4),
+                torch.zeros(4))))
+        ret.append(tf.Summary.Value(
+                tag="sanity_neg1", simple_value=mt.cos_angle(torch.ones(4),
+                torch.ones(4) * -1)))
+
+        return ret
