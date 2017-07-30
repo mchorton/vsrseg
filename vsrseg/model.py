@@ -1,9 +1,13 @@
+import os
+import itertools as it
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as ag
 import torchvision as tv
 import torchvision.transforms as tt
+# TODO use tensor_log
 import tensorflow as tf
 
 import utils.mylogger as logging
@@ -11,26 +15,35 @@ import utils.methods as mt
 
 IMSIZE = (224, 224) # width, height
 
+# Idea: add pre- and post-loop hooks for logging, printing info, etc.
 class BBTrainer(object):
     """
     Train a model to predict bounding boxes and semantic information from 
     images.
     """
-    def __init__(self, model, dataloader, cuda=True, lr=0.001, log_dir=None):
+    def __init__(self, model, dataloader, **kwargs):
+        print kwargs
         self.epoch = 0
         self.model = model
         self.dataloader = dataloader
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=lr)
-        self.cuda = cuda
+                self.model.parameters(), lr=kwargs["learn_rate"])
+
+        self.cuda = not kwargs["cpu"]
+        self.save_dir = kwargs["save_dir"]
+        self.save_per = kwargs["save_per"]
 
         if self.cuda:
             self.model = self.model.cuda()
 
-        self.log_dir = log_dir
+        self.log_dir = self.save_dir
         if self.log_dir is not None:
             self.train_writer = tf.summary.FileWriter(self.log_dir + "/train")
+
+        if self.save_dir is not None:
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)
 
     def train(self, epochs):
         # TODO need to come up with loss function, optimization method, etc. 
@@ -45,6 +58,8 @@ class BBTrainer(object):
             # Make a full pass over the training set.
             for i, data in enumerate(self.dataloader):
                 history.append(self.handle_batch(data))
+
+            # log error values
             if mt.should_do(self.epoch, 1) and (self.log_dir is not None):
                 err = sum(history) / len(history)
                 values = [
@@ -54,9 +69,21 @@ class BBTrainer(object):
                 summary = tf.Summary(value=values)
                 self.train_writer.add_summary(summary, self.epoch + 1)
 
+            # save the model if needed
+            if mt.should_do(self.epoch, self.save_per) and \
+                    self.save_dir is not None:
+                self.save()
+
             logging.getLogger(__name__).info(
                     "---> After Epoch #%d: Loss=%.8f" % (
                             self.epoch, sum(history)/len(history)))
+
+    def save(self):
+        # TODO also save training info? a list of historical parameters?
+        outname = os.path.join(self.save_dir, "model_%d.ckpt" % self.epoch)
+        logging.getLogger(__name__).info(
+                "---> Saving checkpoint to '%s'" % outname)
+        torch.save(self.model.state_dict(), outname)
 
     def handle_batch(self, data):
         x, y = data
@@ -72,7 +99,6 @@ class BBTrainer(object):
         return err.data[0]
 
 class CtxBB(nn.Module):
-    # TODO this model will be changed to predict bounding boxes for objects.
     def __init__(self):
         super(CtxBB, self).__init__()
         self.resnet = tv.models.resnet18(pretrained=True)
@@ -107,8 +133,9 @@ class CtxBB(nn.Module):
         pilimage = tt.ToPILImage()(filter_tensor.data.cpu())
         img_bytes = mt.pil_2_bytes(pilimage)
 
+        # TODO this output isn't useful.
         img = tf.Summary.Image(width=width, height=height, colorspace=3,
-                encoded_image_string=img_bytes) # TODO wrong.
+                encoded_image_string=img_bytes) 
         img_value = tf.Summary.Value(tag="First Filter", image=img)
         ret = [img_value]
 
@@ -138,5 +165,25 @@ class CtxBB(nn.Module):
         ret.append(tf.Summary.Value(
                 tag="sanity_neg1", simple_value=mt.cos_angle(torch.ones(4),
                 torch.ones(4) * -1)))
+        return ret
 
+    def interpret_predictions(self, predictions, labels):
+        # TODO this is just a skeleton for now.
+        # Turn a tensor of predictions into a list of predictions.
+        # predictions: a list of array values to be turned into predictions
+        # labels: a list of the labels for this image.
+        #     labes[0]: a the coco annotations
+        #     labels[1]: the vcoco annotations; e.g.,
+        #         {"image_id": int, "verbs": {verb_name: stuff}}
+        ret = []
+        for i, (prediction) in enumerate(predictions):
+            p = {
+                    "image_id": int(labels[1]["image_id"][i]),
+                    "person_box": [0, 0, 10, 10],
+                }
+            for verb_name in labels[1]["verbs"]:
+                p["%s_agent" % verb_name] = 0.1
+                p["%s_obj" % verb_name] = 0.1
+                p["%s_instr" % verb_name] = 0.1
+            ret.append(p)
         return ret

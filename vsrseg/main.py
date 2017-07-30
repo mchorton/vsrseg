@@ -1,5 +1,8 @@
 import sys
 import argparse
+import datetime as dt
+import os
+import cPickle as pik
 
 import torch
 import torch.utils.data as td
@@ -8,6 +11,7 @@ import torchvision.transforms as tt
 import model as md
 import utils.mylogger as logging
 import load_data as ld
+import evaluate as ev
 
 def get_fake_loader():
     datapoints = 64
@@ -17,18 +21,6 @@ def get_fake_loader():
     dataset = td.TensorDataset(x, y)
     return td.DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
 
-def get_loader(vcoco_set, coco_dir):
-    # TODO need to update to get tt.Scale class.
-    transforms = tt.Compose([
-            tt.Scale(md.IMSIZE),
-            tt.ToTensor(),
-        ])
-    targ_trans = lambda y: torch.Tensor(y[1]["throw"]["label"])
-    dataset = ld.VCocoBoxes(
-            vcoco_set, coco_dir, transform=transforms,
-            combined_transform=targ_trans)
-    return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
-
 def main(args):
     parser = argparse.ArgumentParser(
             description=(
@@ -36,13 +28,18 @@ def main(args):
                     "(or detection)"))
     parser.add_argument("mode", help="Mode to run model in (e.g. 'train')")
     parser.add_argument(
-            "-e", "--epochs", help="number of epochs for training", default=50)
+            "-s", "--save_dir", help="directory for saving the model",
+            default="saved_models/%s" % dt.datetime.now().strftime(
+                    "%Y_%m_%d_%H_%M_%S"))
+    parser.add_argument(
+            "-e", "--epochs", help="number of epochs for training", type=int,
+            default=50)
+    parser.add_argument(
+            "-p", "--save_per", help="epochs to wait before saving", type=int,
+            default=5)
     parser.add_argument(
             "-l", "--learn_rate", help="learning rate", type=float,
             default=0.001)
-    parser.add_argument(
-            "-d", "--log_dir", help="log dir for tensorboard output", 
-            default=None)
     parser.add_argument(
             "-c", "--cpu", action="store_true",
             help="flag to use cpu instead of cuda")
@@ -51,6 +48,9 @@ def main(args):
             help=(
                     "flag to use fake data that loads quickly (for"
                     "development purposes)"))
+    parser.add_argument(
+            "--net", help="file in which model is stored. Used in test mode.",
+            default=None)
     cfg = parser.parse_args(args)
 
     if cfg.mode == 'train':
@@ -58,13 +58,28 @@ def main(args):
         if cfg.fake:
             dataloader = get_fake_loader()
         else:
-            dataloader = get_loader(
-                    "vcoco_train", "../v-coco/coco/images/train2014")
-        trainer = md.BBTrainer(
-                model, dataloader, cuda=(not cfg.cpu), lr=cfg.learn_rate,
-                log_dir=cfg.log_dir)
+            dataloader = ld.get_loader(
+                    "vcoco_train", "/home/mchorton/data/coco/images/")
+        trainer = md.BBTrainer(model, dataloader, **vars(cfg))
         logging.getLogger(__name__).info("Beginning Training...")
         trainer.train(cfg.epochs)
+    elif cfg.mode == 'test':
+        model = md.CtxBB()
+        checkpoint = torch.load(cfg.net)
+        model.load_state_dict(checkpoint)
+        evaluator = ev.Evaluator(**vars(cfg))
+        results = evaluator.evaluate_model(
+                model, "vcoco_val", "/home/mchorton/data/coco/images/")
+        outfile = os.path.join(cfg.save_dir, "evaluation.pkl")
+        with open(outfile, "w") as f:
+            pik.dump(results, f)
+        from vsrl_eval import VCOCOeval
+        vcocoeval = VCOCOeval(
+                "../v-coco/data/vcoco/vcoco_val.json",
+                "../v-coco/data/instances_vcoco_all_2014.json",
+                "../v-coco/data/splits/vcoco_val.ids")
+        vcocoeval._do_eval(outfile, ovr_thresh=0.5)
+
     else:
         logging.getLogger(__name__).error("Invalid mode '%s'" % str(cfg.mode))
         sys.exit(1)

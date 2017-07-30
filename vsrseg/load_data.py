@@ -3,7 +3,10 @@ from os import path
 import torch
 import torch.utils.data as td
 import torchvision.datasets as dsets
+import torchvision.transforms as tt
 import vsrl_utils as vu
+
+import model as md
 
 def get_imgid_2_vcoco_labels(vcoco_all, coco):
     """
@@ -16,9 +19,12 @@ def get_imgid_2_vcoco_labels(vcoco_all, coco):
         for i in xrange(len(verb_dict["image_id"])):
             img_id = verb_dict["image_id"][i][0]
             if img_id not in ret:
-                ret[img_id] = {}
+                ret[img_id] = {
+                        "image_id": img_id,
+                        "verbs": {},
+                    }
             # Don't overwrite verb_dict while iterating.
-            ret[img_id][action_name] = \
+            ret[img_id]["verbs"][action_name] = \
                     {
                         "role_object_id": verb_dict["role_object_id"][i],
                         "role_name": verb_dict["role_name"],
@@ -58,3 +64,23 @@ class VCocoBoxes(dsets.coco.CocoDetection):
         if self.combined_transform is not None:
             target = self.combined_transform(target)
         return (img, target)
+
+def get_loader(vcoco_set, coco_dir):
+    transforms = tt.Compose([
+            tt.Scale(md.IMSIZE),
+            tt.ToTensor(),
+        ])
+    targ_trans = lambda y: torch.Tensor(y[1]["throw"]["label"])
+    dataset = VCocoBoxes(
+            vcoco_set, coco_dir, transform=transforms,
+            combined_transform=targ_trans)
+    return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
+
+def get_label_loader(vcoco_set, coco_dir):
+    transforms = tt.Compose([
+            tt.Scale(md.IMSIZE),
+            tt.ToTensor(),
+        ])
+    dataset = VCocoBoxes(
+            vcoco_set, coco_dir, transform=transforms)
+    return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
