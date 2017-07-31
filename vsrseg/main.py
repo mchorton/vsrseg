@@ -41,8 +41,8 @@ def main(args):
             "-l", "--learn_rate", help="learning rate", type=float,
             default=0.001)
     parser.add_argument(
-            "-c", "--cpu", action="store_true",
-            help="flag to use cpu instead of cuda")
+            "-c", "--cuda", type=int, nargs="+",
+            help="ids of gpus to use during training", default=[])
     parser.add_argument(
             "-f", "--fake", action="store_true",
             help=(
@@ -60,7 +60,7 @@ def main(args):
         else:
             dataloader = ld.get_loader(
                     "vcoco_train", "/home/mchorton/data/coco/images/")
-        trainer = md.BBTrainer(model, dataloader, **vars(cfg))
+        trainer = md.BasicTrainer(model, dataloader, **vars(cfg))
         logging.getLogger(__name__).info("Beginning Training...")
         trainer.train(cfg.epochs)
     elif cfg.mode == 'test':

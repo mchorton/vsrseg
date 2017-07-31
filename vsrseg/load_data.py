@@ -70,7 +70,7 @@ def get_loader(vcoco_set, coco_dir):
             tt.Scale(md.IMSIZE),
             tt.ToTensor(),
         ])
-    targ_trans = lambda y: torch.Tensor(y[1]["throw"]["label"])
+    targ_trans = lambda y: torch.Tensor(y[1]["verbs"]["throw"]["label"])
     dataset = VCocoBoxes(
             vcoco_set, coco_dir, transform=transforms,
             combined_transform=targ_trans)

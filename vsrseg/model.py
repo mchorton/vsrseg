@@ -1,5 +1,6 @@
 import os
 import itertools as it
+import copy
 
 import torch
 import torch.nn as nn
@@ -7,7 +8,6 @@ import torch.nn.functional as F
 import torch.autograd as ag
 import torchvision as tv
 import torchvision.transforms as tt
-# TODO use tensor_log
 import tensorflow as tf
 
 import utils.mylogger as logging
@@ -16,87 +16,108 @@ import utils.methods as mt
 IMSIZE = (224, 224) # width, height
 
 # Idea: add pre- and post-loop hooks for logging, printing info, etc.
-class BBTrainer(object):
+class Trainer(object):
     """
     Train a model to predict bounding boxes and semantic information from 
     images.
+
+    To make a new Trainer, subclass this model and consider changing:
+    - RelevantKwargs
+    - self.criterion
+    - self.optimizer
+    - self.callbacks; this is a list of callbacks that take a Trainer as their
+        sole argument. This is for doing things like saving models, printing
+        losses, etc.
     """
+    RelevantKwargs = {
+            "cuda": [],
+            "save_dir": None,
+            "save_per": 1,
+            "learn_rate": 0.001,
+        }
     def __init__(self, model, dataloader, **kwargs):
-        print kwargs
         self.epoch = 0
         self.model = model
         self.dataloader = dataloader
-        self.criterion = nn.MSELoss()
-        self.optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=kwargs["learn_rate"])
-
-        self.cuda = not kwargs["cpu"]
-        self.save_dir = kwargs["save_dir"]
-        self.save_per = kwargs["save_per"]
-
-        if self.cuda:
-            self.model = self.model.cuda()
-
-        self.log_dir = self.save_dir
-        if self.log_dir is not None:
-            self.train_writer = tf.summary.FileWriter(self.log_dir + "/train")
+        my_kwargs = copy.deepcopy(self.RelevantKwargs)
+        for kw, setting in my_kwargs.iteritems():
+            if kw in kwargs:
+                setting = kwargs[kw]
+            setattr(self, kw, setting)
 
         if self.save_dir is not None:
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
 
+        if self.cuda:
+            self.model = self.model.cuda(self.cuda[0])
+
+        self.history = []
+        self.callbacks = []
+
     def train(self, epochs):
-        # TODO need to come up with loss function, optimization method, etc. 
-        # that we want to use.
-        # TODO maybe the loss function should be part of the model, and this
-        # training loop will just leverage it and output graphs / etc.
         logging.getLogger(__name__).info(
                 "Starting training at epoch %d" % self.epoch)
-        for self.epoch in range(self.epoch, self.epoch + epochs):
+        for self.epoch in range(self.epoch + 1, self.epoch + 1 + epochs):
             logging.getLogger(__name__).info("Running epoch %d" % self.epoch)
-            history = []
+            self.local_history = []
             # Make a full pass over the training set.
             for i, data in enumerate(self.dataloader):
-                history.append(self.handle_batch(data))
+                self.local_history.append(self.handle_batch(data))
 
-            # log error values
-            if mt.should_do(self.epoch, 1) and (self.log_dir is not None):
-                err = sum(history) / len(history)
-                values = [
-                        tf.Summary.Value(tag="error", simple_value=err),
-                    ]
-                values += self.model.get_summary_values()
-                summary = tf.Summary(value=values)
-                self.train_writer.add_summary(summary, self.epoch + 1)
+            for callback in self.callbacks:
+                callback(self)
 
-            # save the model if needed
-            if mt.should_do(self.epoch, self.save_per) and \
-                    self.save_dir is not None:
-                self.save()
+    def handle_batch(self, data):
+        raise NotImplementedError
 
-            logging.getLogger(__name__).info(
-                    "---> After Epoch #%d: Loss=%.8f" % (
-                            self.epoch, sum(history)/len(history)))
-
-    def save(self):
-        # TODO also save training info? a list of historical parameters?
-        outname = os.path.join(self.save_dir, "model_%d.ckpt" % self.epoch)
-        logging.getLogger(__name__).info(
-                "---> Saving checkpoint to '%s'" % outname)
-        torch.save(self.model.state_dict(), outname)
+class BasicTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super(BasicTrainer, self).__init__(*args, **kwargs)
+        self.criterion = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.learn_rate)
+        self.callbacks = [print_loss, log_error]
+        #self.callbacks = [print_loss, log_error, save_trainer]
 
     def handle_batch(self, data):
         x, y = data
         x = ag.Variable(x)
         y = ag.Variable(y)
         if self.cuda:
-            x = x.cuda()
-            y = y.cuda()
+            x = x.cuda(self.cuda[0])
+            y = y.cuda(self.cuda[0])
         pred = self.model(x)
         err = self.criterion(pred, y)
         err.backward()
         self.optimizer.step()
         return err.data[0]
+
+def log_error(trainer):
+    # log error values
+    if len(trainer.history) < 1:
+        return
+    if mt.should_do(trainer.epoch, 1) and (trainer.save_dir is not None):
+        err = sum(trainer.history) / len(trainer.history)
+        values = [
+                tf.Summary.Value(tag="error", simple_value=err),
+            ]
+        values += trainer.model.get_summary_values()
+        summary = tf.Summary(value=values)
+        trainer.train_writer.add_summary(summary, trainer.epoch + 1)
+
+def save_trainer(trainer):
+    # save the model if needed
+    if mt.should_do(trainer.epoch, trainer.save_per) and \
+            trainer.save_dir is not None:
+        torch.save(trainer, os.path.join(
+                trainer.save_dir, "trainer_%d.trn" % trainer.epoch))
+
+def print_loss(trainer):
+    logging.getLogger(__name__).info(
+            "---> After Epoch #%d: Loss=%.8f" % (
+                    trainer.epoch,
+                    sum(trainer.local_history) / len(trainer.local_history)))
 
 class CtxBB(nn.Module):
     def __init__(self):
