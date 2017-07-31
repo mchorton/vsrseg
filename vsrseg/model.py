@@ -77,8 +77,7 @@ class BasicTrainer(Trainer):
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(
                 self.model.parameters(), lr=self.learn_rate)
-        self.callbacks = [print_loss, log_error]
-        #self.callbacks = [print_loss, log_error, save_trainer]
+        self.callbacks = [print_loss, log_error, save_trainer]
 
     def handle_batch(self, data):
         x, y = data
