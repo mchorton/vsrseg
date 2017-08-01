@@ -1,3 +1,6 @@
+import os
+import cPickle as pik
+
 import torch.autograd as ag
 import vsrl_utils as vu
 import load_data as ld
@@ -24,10 +27,10 @@ class Evaluator(object):
             results += model.interpret_predictions(pred, y)
         return results
 
-def do_eval(evaluator, model, vcoco_set):
+def do_eval(evaluator, model, vcoco_set, save_dir, postfix=""):
     results = evaluator.evaluate_model(
             model, "vcoco_val", ld.COCO_IMGDIR)
-    outfile = os.path.join(cfg.save_dir, "evaluation.pkl")
+    outfile = os.path.join(save_dir, "evaluation%s.pkl" % postfix)
     with open(outfile, "w") as f:
         pik.dump(results, f)
     vcocoeval = VCOCOeval(

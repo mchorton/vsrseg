@@ -17,15 +17,13 @@ class TrainerIntegrationTest(unittest.TestCase):
 
     def setUp(self):
         self.model = torch.nn.Linear(4, 8)
-        self.dataloader = DataLoader(
-                TensorDataset(torch.ones((20, 4)), torch.ones((20, 8)) * 5))
+        self.dataloader = ld.get_loader("vcoco_train", ld.COCO_IMGDIR)
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.test_dir)
 
     def test_pickle(self):
-        self.dataloader = ld.get_loader("vcoco_train", ld.COCO_IMGDIR)
         self.trainer = model.BasicTrainer(
                 self.model, self.dataloader,
                 save_dir=os.path.join(self.test_dir, "test_resume"),
@@ -35,8 +33,7 @@ class TrainerIntegrationTest(unittest.TestCase):
         torch.save(self.trainer, outname)
 
     def test_prod_train(self):
-        self.dataloader = ld.get_loader("vcoco_train", ld.COCO_IMGDIR)
-        self.model = model.CtxBB()
+        self.model = model.TestCtxBB()
         self.trainer = model.BasicTrainer(
                 self.model, self.dataloader,
                 save_dir=os.path.join(self.test_dir, "test_resume"),
@@ -44,8 +41,3 @@ class TrainerIntegrationTest(unittest.TestCase):
                 cuda=[0])
         outname = os.path.join(self.test_dir, "test_pickle.trn")
         self.trainer.train(1)
-
-    def test_prod_test(self):
-        self.model = model.TestCtxBB()
-        evaluator = ev.Evaluator(cuda=[0])
-        ev.do_eval(evaluator, self.model, "vcoco_val")

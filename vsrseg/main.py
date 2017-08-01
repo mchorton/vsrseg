@@ -2,7 +2,6 @@ import sys
 import argparse
 import datetime as dt
 import os
-import cPickle as pik
 
 import torch
 import torch.utils.data as td
@@ -67,7 +66,7 @@ def main(args):
         checkpoint = torch.load(cfg.net)
         model = checkpoint["model"]
         evaluator = ev.Evaluator(**vars(cfg))
-        ev.do_eval(evaluator, model, "vcoco_val")
+        ev.do_eval(evaluator, model, "vcoco_val", cfg.save_dir)
 
     else:
         logging.getLogger(__name__).error("Invalid mode '%s'" % str(cfg.mode))

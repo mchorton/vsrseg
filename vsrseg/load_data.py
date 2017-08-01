@@ -14,7 +14,7 @@ VCOCO_DIR = "/home/mchorton/code/vsr_segmentation/v-coco/"
 COCO_VCOCO_ANN = path.join(VCOCO_DIR, "data/instances_vcoco_all_2014.json")
 
 def get_vsrl_labels(vcoco_set):
-    return path.join(VCOCO_DIR, "data/%s.json" % vcoco_set)
+    return path.join(VCOCO_DIR, "data/vcoco/%s.json" % vcoco_set)
 
 def get_ids(vcoco_set):
     return path.join(VCOCO_DIR, "data/splits/%s.ids" % vcoco_set)
@@ -79,6 +79,7 @@ class VCocoBoxes(dsets.coco.CocoDetection):
 def targ_trans(target):
     return torch.Tensor(target[1]["verbs"]["throw"]["label"])
 
+# TODO delete this.
 def get_loader(vcoco_set, coco_dir):
     transforms = tt.Compose([
             tt.Scale(md.IMSIZE),
@@ -89,12 +90,41 @@ def get_loader(vcoco_set, coco_dir):
             combined_transform=targ_trans)
     return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
 
-def get_label_loader(vcoco_set, coco_dir):
+def get_label_loader(vcoco_set, coco_dir, test=False):
     # Similar to get_loader(), but gives a loader that gives all the full labels
     transforms = tt.Compose([
             tt.Scale(md.IMSIZE),
             tt.ToTensor(),
         ])
-    dataset = VCocoBoxes(
-            vcoco_set, coco_dir, transform=transforms)
+    if not test:
+        cls = VCocoBoxes
+    else:
+        cls = FakeVCocoBoxes
+    dataset = cls(vcoco_set, coco_dir, transform=transforms)
     return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
+
+class FakeVCocoBoxes(VCocoBoxes):
+    def __len__(self):
+        return 40
+
+class FakeDatasetLoader(object):
+    def __init__(self, data):
+        self.data = data
+    def __iter__(self):
+        return iter(self.data)
+
+def make_test_loader():
+    loader = get_label_loader("vcoco_train", COCO_IMGDIR)
+    items = []
+    for i, data in enumerate(loader):
+        items.append(data)
+        if i > 0:
+            break
+    dataset = FakeDatasetLoader(items)
+    torch.save(dataset, "data/test_data.th")
+
+def get_test_loader():
+    dataset = torch.load("data/test_data.th")
+    return dataset
+    return td.DataLoader(dataset, batch_size=8)
+    

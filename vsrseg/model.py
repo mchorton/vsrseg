@@ -91,6 +91,29 @@ class BasicTrainer(Trainer):
         self.optimizer.step()
         return err.data[0]
 
+class TestTrainerRealData(Trainer):
+    def __init__(self, *args, **kwargs):
+        super(TestTrainerRealData, self).__init__(*args, **kwargs)
+        self.criterion = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.learn_rate)
+        self.callbacks = [print_loss, log_error, save_trainer]
+
+    def handle_batch(self, data):
+        x, y = data
+        x = ag.Variable(x)
+        y = y[1]["verbs"]["throw"]["label"].float()
+        y = ag.Variable(y)
+        if self.cuda:
+            x = x.cuda(self.cuda[0])
+            y = y.cuda(self.cuda[0])
+        pred = self.model(x)
+        err = self.criterion(pred, y)
+        err.backward()
+        self.optimizer.step()
+        return err.data[0]
+
+
 def log_error(trainer):
     # log error values
     if len(trainer.history) < 1:
