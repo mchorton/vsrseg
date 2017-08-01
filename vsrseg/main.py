@@ -59,26 +59,15 @@ def main(args):
             dataloader = get_fake_loader()
         else:
             dataloader = ld.get_loader(
-                    "vcoco_train", "/home/mchorton/data/coco/images/")
+                    "vcoco_train", ld.COCO_IMGDIR)
         trainer = md.BasicTrainer(model, dataloader, **vars(cfg))
         logging.getLogger(__name__).info("Beginning Training...")
         trainer.train(cfg.epochs)
     elif cfg.mode == 'test':
-        model = md.CtxBB()
         checkpoint = torch.load(cfg.net)
-        model.load_state_dict(checkpoint)
+        model = checkpoint["model"]
         evaluator = ev.Evaluator(**vars(cfg))
-        results = evaluator.evaluate_model(
-                model, "vcoco_val", "/home/mchorton/data/coco/images/")
-        outfile = os.path.join(cfg.save_dir, "evaluation.pkl")
-        with open(outfile, "w") as f:
-            pik.dump(results, f)
-        from vsrl_eval import VCOCOeval
-        vcocoeval = VCOCOeval(
-                "../v-coco/data/vcoco/vcoco_val.json",
-                "../v-coco/data/instances_vcoco_all_2014.json",
-                "../v-coco/data/splits/vcoco_val.ids")
-        vcocoeval._do_eval(outfile, ovr_thresh=0.5)
+        ev.do_eval(evaluator, model, "vcoco_val")
 
     else:
         logging.getLogger(__name__).error("Invalid mode '%s'" % str(cfg.mode))

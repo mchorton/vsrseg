@@ -8,6 +8,17 @@ import vsrl_utils as vu
 
 import model as md
 
+COCO_IMGDIR = "/home/mchorton/data/coco/images/"
+VCOCO_DIR = "/home/mchorton/code/vsr_segmentation/v-coco/"
+
+COCO_VCOCO_ANN = path.join(VCOCO_DIR, "data/instances_vcoco_all_2014.json")
+
+def get_vsrl_labels(vcoco_set):
+    return path.join(VCOCO_DIR, "data/%s.json" % vcoco_set)
+
+def get_ids(vcoco_set):
+    return path.join(VCOCO_DIR, "data/splits/%s.ids" % vcoco_set)
+
 def get_imgid_2_vcoco_labels(vcoco_all, coco):
     """
     Get a dict from annotation id to vcoco image labels.
@@ -65,18 +76,21 @@ class VCocoBoxes(dsets.coco.CocoDetection):
             target = self.combined_transform(target)
         return (img, target)
 
+def targ_trans(target):
+    return torch.Tensor(target[1]["verbs"]["throw"]["label"])
+
 def get_loader(vcoco_set, coco_dir):
     transforms = tt.Compose([
             tt.Scale(md.IMSIZE),
             tt.ToTensor(),
         ])
-    targ_trans = lambda y: torch.Tensor(y[1]["verbs"]["throw"]["label"])
     dataset = VCocoBoxes(
             vcoco_set, coco_dir, transform=transforms,
             combined_transform=targ_trans)
     return td.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
 
 def get_label_loader(vcoco_set, coco_dir):
+    # Similar to get_loader(), but gives a loader that gives all the full labels
     transforms = tt.Compose([
             tt.Scale(md.IMSIZE),
             tt.ToTensor(),

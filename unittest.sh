@@ -1,2 +1,2 @@
 #!/bin/sh
-python -m unittest discover vsrseg/ "*_test.py"
+python -m unittest discover vsrseg/ "*unit_test.py"

@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 import model
+import vsrseg.load_data as ld
 
 class TrainerTest(unittest.TestCase):
     @classmethod
@@ -36,7 +37,8 @@ class TrainerTest(unittest.TestCase):
     def test_resume_train(self):
         self.trainer = model.BasicTrainer(
                 self.model, self.dataloader, cuda=None, 
-                save_dir=os.path.join(self.test_dir, "test_resume"))
+                save_dir=os.path.join(self.test_dir, "test_resume"),
+                save_per=4)
         # Make sure epochs are consistent when training pauses.
         self.trainer.train(2)
         self.assertEqual(self.trainer.epoch, 2)

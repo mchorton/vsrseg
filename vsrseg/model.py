@@ -49,22 +49,21 @@ class Trainer(object):
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
 
-        if self.cuda:
-            self.model = self.model.cuda(self.cuda[0])
-
         self.history = []
         self.callbacks = []
 
+        if self.cuda:
+            self.model = self.model.cuda(self.cuda[0])
+
     def train(self, epochs):
         logging.getLogger(__name__).info(
-                "Starting training at epoch %d" % self.epoch)
+                "Starting training at epoch %d" % (self.epoch + 1))
         for self.epoch in range(self.epoch + 1, self.epoch + 1 + epochs):
             logging.getLogger(__name__).info("Running epoch %d" % self.epoch)
             self.local_history = []
             # Make a full pass over the training set.
             for i, data in enumerate(self.dataloader):
                 self.local_history.append(self.handle_batch(data))
-
             for callback in self.callbacks:
                 callback(self)
 
@@ -109,6 +108,7 @@ def save_trainer(trainer):
     # save the model if needed
     if mt.should_do(trainer.epoch, trainer.save_per) and \
             trainer.save_dir is not None:
+        logging.getLogger(__name__).info("Saving training file...")
         torch.save(trainer, os.path.join(
                 trainer.save_dir, "trainer_%d.trn" % trainer.epoch))
 
@@ -207,3 +207,15 @@ class CtxBB(nn.Module):
                 p["%s_instr" % verb_name] = 0.1
             ret.append(p)
         return ret
+
+class TestCtxBB(CtxBB):
+    def __init__(self, *args, **kwargs):
+        super(TestCtxBB, self).__init__(*args, **kwargs)
+        stride = 16
+        self.feature_map = nn.Conv2d(3, 1, 1, stride=stride)
+        self.linear = nn.Linear(IMSIZE[0] * IMSIZE[1] / stride / stride, 1)
+
+    def forward(self, image): 
+        ret = self.feature_map(image)
+        ret = ret.view(ret.size(0), -1)
+        return F.sigmoid(self.linear(ret))

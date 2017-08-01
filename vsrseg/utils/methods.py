@@ -2,7 +2,7 @@ import io
 import torch
 
 def should_do(i, doPer):
-    return i % doPer == (doPer - 1)
+    return i % doPer == 0
 
 def pil_2_bytes(pilimage):
     array = io.BytesIO()
