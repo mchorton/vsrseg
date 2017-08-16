@@ -1,3 +1,8 @@
+"""
+Skeleton code for building and training models. The models in here are mostly
+toys for unit/integration testing purposes, or classes to be subclassed.
+"""
+
 import os
 import itertools as it
 import copy
@@ -37,6 +42,7 @@ class Trainer(object):
         }
     def __init__(self, model, dataloader, **kwargs):
         self.epoch = 0
+        self.iteration = 0
         self.model = model
         self.dataloader = dataloader
         my_kwargs = copy.deepcopy(self.RelevantKwargs)
@@ -49,23 +55,39 @@ class Trainer(object):
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
 
+        # Used to store information pertaining to the current epoch.
+        self.epoch_data = []
+        # Used to store epoch_data through multiple epochs.
         self.history = []
-        self.callbacks = []
+        self.epoch_callbacks = []
+        self.batch_callbacks = []
 
         if self.cuda:
             self.model = self.model.cuda(self.cuda[0])
 
+    def run_batch_callbacks(self):
+        for callback in self.batch_callbacks:
+            callback(self)
+
+    def run_epoch_callbacks(self):
+        for callback in self.epoch_callbacks:
+            callback(self)
+
+    def fractional_epoch(self):
+        return self.epoch + (1. * self.iteration / len(self.dataloader))
+
     def train(self, epochs):
+        self.model.train()
         logging.getLogger(__name__).info(
                 "Starting training at epoch %d" % (self.epoch + 1))
         for self.epoch in range(self.epoch + 1, self.epoch + 1 + epochs):
             logging.getLogger(__name__).info("Running epoch %d" % self.epoch)
-            self.local_history = []
             # Make a full pass over the training set.
-            for i, data in enumerate(self.dataloader):
-                self.local_history.append(self.handle_batch(data))
-            for callback in self.callbacks:
-                callback(self)
+            for self.iteration, data in enumerate(self.dataloader, start=1):
+                self.handle_batch(data)
+                self.run_batch_callbacks()
+            self.run_epoch_callbacks()
+            del self.epoch_data[:] # Clear the list of epoch data
 
     def handle_batch(self, data):
         raise NotImplementedError
@@ -87,6 +109,7 @@ class BasicTrainer(Trainer):
             y = y.cuda(self.cuda[0])
         pred = self.model(x)
         err = self.criterion(pred, y)
+        self.optimizer.zero_grad()
         err.backward()
         self.optimizer.step()
         return err.data[0]
@@ -111,21 +134,19 @@ class TestTrainerRealData(Trainer):
         err = self.criterion(pred, y)
         err.backward()
         self.optimizer.step()
-        return err.data[0]
-
 
 def log_error(trainer):
     # log error values
-    if len(trainer.history) < 1:
+    if len(trainer.epoch_data) < 1:
         return
-    if mt.should_do(trainer.epoch, 1) and (trainer.save_dir is not None):
-        err = sum(trainer.history) / len(trainer.history)
+    if mt.should_do(trainer.iteration, 1) and (trainer.save_dir is not None):
+        err = trainer.epoch_data[-1]
         values = [
                 tf.Summary.Value(tag="error", simple_value=err),
             ]
         values += trainer.model.get_summary_values()
         summary = tf.Summary(value=values)
-        trainer.train_writer.add_summary(summary, trainer.epoch + 1)
+        trainer.train_writer.add_summary(summary, trainer.fractional_epoch())
 
 def save_trainer(trainer):
     # save the model if needed
