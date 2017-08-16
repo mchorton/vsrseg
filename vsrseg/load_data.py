@@ -122,9 +122,6 @@ class VCocoTranslator(object):
             ret[0,index,1:] = self.get_nth_role_bbox(
                     vcoco_labels["verbs"][action]["role_bbox"], position)
             ret[0,index,0] = vcoco_labels["verbs"][action]["label"] * 1.
-            print "==> index %d" % index
-            print "vcoco_labels[verbs][%s]" % action, \
-                    vcoco_labels["verbs"][action]
         return ret
 
     def action_role_iter(self):
