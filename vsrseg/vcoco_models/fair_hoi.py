@@ -12,7 +12,9 @@ import torch.nn.functional as F
 import vsrseg.model as md
 
 class HumanCentricBranch(nn.Module):
-    def __init__(self, n_action_classes, n_action_nonagent_roles, pool_size=7, in_filters=512, **kwargs):
+    def __init__(
+            self, n_action_classes, n_action_nonagent_roles, pool_size=7,
+            in_filters=512, **kwargs):
         super(HumanCentricBranch, self).__init__()
         # TODO should it have its own pool layer, or reuse that of the detector?
         self.roi_pool = RoIPool(pool_size, pool_size, 1.0/16)

@@ -96,8 +96,8 @@ class BasicTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super(BasicTrainer, self).__init__(*args, **kwargs)
         self.criterion = nn.MSELoss()
-        self.optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=self.learn_rate)
+        parameters = filter(lambda p: p.requires_grad, self.model.parameters())
+        self.optimizer = torch.optim.Adam(parameters, lr=self.learn_rate)
         self.callbacks = [print_loss, log_error, save_trainer]
 
     def handle_batch(self, data):

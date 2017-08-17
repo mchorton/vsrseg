@@ -1,4 +1,5 @@
 from os import path
+import numpy as np
 
 import torch
 import torch.utils.data as td
@@ -7,20 +8,45 @@ import torchvision.transforms as tt
 import vsrl_utils as vu
 from faster_rcnn.datasets.factory import get_imdb
 import faster_rcnn.roi_data_layer.roidb as rdl_roidb
-import numpy as np
+import faster_rcnn.fast_rcnn.config as cf
 
 import model as md
 
-COCO_IMGDIR = "/home/mchorton/data/coco/images/"
-VCOCO_DIR = "/home/mchorton/code/vsr_segmentation/v-coco/"
+"""
+Due to different conventions used by 3rd party software :(, you need the
+following:
 
-COCO_VCOCO_ANN = path.join(VCOCO_DIR, "data/instances_vcoco_all_2014.json")
+You need a VCOCO_ROOT directory that has images stored like this:
+$VCOCO_ROOT/coco/images/train2014/
+$VCOCO_ROOT/coco/images/val2014/
+
+You also need a COCO_ROOT directory that has images stored like this:
+$COCO_ROOT/images/
+"""
+
+HOME = path.expanduser("~")
+VCOCO_ROOT = path.join(HOME, "data/v-coco/")
+COCO_ROOT = path.join(HOME, "data/coco/")
+
+class PathManager(object):
+    def __init__(self, coco_root=COCO_ROOT, vcoco_root=VCOCO_ROOT):
+        self.coco_root = coco_root
+        self.vcoco_root = vcoco_root
+    @property
+    def coco_imgs(self):
+        return path.join(self.coco_root, "images/")
+    @property
+    def coco_vcoco_ann(self):
+        return path.join(
+                self.vcoco_root, "data/instances_vcoco_all_2014.json")
+
+defaultpm = PathManager()
 
 def get_vsrl_labels(vcoco_set):
-    return path.join(VCOCO_DIR, "data/vcoco/%s.json" % vcoco_set)
+    return path.join(VCOCO_ROOT, "data/vcoco/%s.json" % vcoco_set)
 
 def get_ids(vcoco_set):
-    return path.join(VCOCO_DIR, "data/splits/%s.ids" % vcoco_set)
+    return path.join(VCOCO_ROOT, "data/splits/%s.ids" % vcoco_set)
 
 def get_imgid_2_vcoco_labels(vcoco_all, coco):
     """
@@ -62,10 +88,9 @@ class VCocoTranslator(object):
         self.actions_2_ids = {
                 name: i for i, name in enumerate(self.ids_2_actions)}
 
-        # Create a local int-based mapping for nouns
-        all_cats = ["__background__"] + sorted(categories)
-        self.ids_2_nouns = all_cats
-        self.nouns_2_ids = {x: i for i, x in enumerate(all_cats)}
+        # We expect that "categories" already contains a background category
+        self.ids_2_nouns = categories
+        self.nouns_2_ids = {x: i for i, x in enumerate(self.ids_2_nouns)}
         #classes = ['__background__'] + sorted([x['
         #self.ids_2_classes = sortedo
 
@@ -167,6 +192,8 @@ class VCocoTranslator(object):
                 gt_labels = np.zeros(self.num_action_nonagent_roles)
                 gt_labels[index] = 1.
                 tup2.append(gt_labels)
+        if len(tup0) == 0:
+            return None, None, None
         return map(np.vstack, [tup0, tup1, tup2])
 
     def human_scores_to_agentrolenonagent(self, h_scores):
@@ -184,16 +211,18 @@ class VCocoTranslator(object):
                 ret[:, ret_ind] = h_scores[:, index]
         return ret
 
+# TODO possibly the only thing that needs COCO_ROOT is this? consider removing
 class VCocoBoxes(dsets.coco.CocoDetection):
     """
     Subclass of CocoDetection dataset offered by pytorch's torchvision library
     https://github.com/pytorch/vision/blob/master/torchvision/datasets/coco.py
     """
     def __init__(
-            self, vcoco_set, root, transform=None, coco_transform=None, 
+            self, vcoco_set, coco_root, transform=None, coco_transform=None, 
             combined_transform=None):
         # Don't call the superconstructor (we don't have an annFile)
-        self.root = root
+        pm = PathManager(coco_root=coco_root)
+        self.root = pm.coco_imgs
         self.coco = vu.load_coco()
         self.vcoco_all = vu.load_vcoco(vcoco_set)
         # If we don't convert to int, COCO library index lookup fails :(
@@ -220,8 +249,12 @@ class RoiVCocoBoxes(VCocoBoxes):
     https://github.com/pytorch/vision/blob/master/torchvision/datasets/coco.py
     """
     def __init__(
-            self, vcoco_set, root):
-        super(RoiVCocoBoxes, self).__init__(vcoco_set, root)
+            self, vcoco_set, coco_root, vcoco_root):
+        super(RoiVCocoBoxes, self).__init__(vcoco_set, coco_root)
+
+        # TODO this sets a global config, which I prefer not to do. But the
+        # faster_rcnn code depends on it.
+        cf.cfg_from_list(["DATA_DIR", vcoco_root])
 
         if vcoco_set == "vcoco_train":
             coco_split = "train"
@@ -242,6 +275,9 @@ class RoiVCocoBoxes(VCocoBoxes):
         vcoco_ann = self.imgid_2_vcoco[img_id]
         roidb_entry = self._roidb[self.cocoimgid_2_roidbindex[img_id]]
         return (roidb_entry, vcoco_ann)
+
+    def get_classes(self):
+        return self._imdb._classes
 
 def targ_trans(target):
     return torch.Tensor(target[1]["verbs"]["throw"]["label"])
@@ -281,7 +317,7 @@ class FakeDatasetLoader(object):
         return iter(self.data)
 
 def make_vcoco_test_loader():
-    loader = get_label_loader("vcoco_train", COCO_IMGDIR)
+    loader = get_label_loader("vcoco_train", defaultpm.coco_imgs)
     outloc = "data/test_data.th"
     make_test_loader(loader, outloc)
 
@@ -303,7 +339,8 @@ def get_test_loader():
     return dataset
 
 def make_roi_test_loader():
-    loader = RoiVCocoBoxes("vcoco_train", COCO_IMGDIR)
+    loader = RoiVCocoBoxes(
+            "vcoco_train", defaultpm.coco_root, defaultpm.vcoco_root)
     outloc = "data/test_roi_data.th"
     dataset = get_test_dataset(loader)
     torch.save((dataset, loader._imdb._classes), outloc)

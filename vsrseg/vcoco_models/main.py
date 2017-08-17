@@ -1,5 +1,6 @@
-# This is mostly just a sample. Real models are in other places. Look for
-# other files named 'main.py' in this project.
+"""
+File for running the VCOCO experiment.
+"""
 import sys
 import argparse
 import datetime as dt
@@ -8,19 +9,13 @@ import os
 import torch
 import torch.utils.data as td
 import torchvision.transforms as tt
+import vsrl_utils as vu
 
-import model as md
 import utils.mylogger as logging
-import load_data as ld
-import evaluate as ev
-
-def get_fake_loader():
-    datapoints = 64
-    # First dim is batch; 3 channels, of size md.IMSIZE[0] x md.IMSIZE[1]
-    x = torch.zeros(datapoints, 3, *md.IMSIZE)
-    y = torch.ones(datapoints, 1)
-    dataset = td.TensorDataset(x, y)
-    return td.DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+import vsrseg.load_data as ld
+import fair_hoi as fhoi
+import train_hoi as thoi
+#import evaluate as ev
 
 def main(args):
     parser = argparse.ArgumentParser(
@@ -45,31 +40,47 @@ def main(args):
             "-c", "--cuda", type=int, nargs="+",
             help="ids of gpus to use during training", default=[])
     parser.add_argument(
-            "-f", "--fake", action="store_true",
-            help=(
-                    "flag to use fake data that loads quickly (for"
-                    "development purposes)"))
-    parser.add_argument(
             "--net", help="file in which model is stored. Used in test mode.",
             default=None)
+    parser.add_argument(
+            "--coco_root", help=(
+                    "path to coco directory, which must have an 'images'"
+                    "subfolder with images inside"),
+            default=ld.COCO_ROOT)
+    parser.add_argument(
+            "--vcoco_root", help=(
+                    "path to v-coco directory, which must have a 'coco'"
+                    "subfolder with another subfolder containing"
+                    "images/train2014 and images/val2014"),
+            default=ld.VCOCO_ROOT)
     cfg = parser.parse_args(args)
 
+    pathman = ld.PathManager(coco_root=cfg.coco_root, vcoco_root=cfg.vcoco_root)
+
     if cfg.mode == 'train':
-        model = md.CtxBB()
-        if cfg.fake:
-            dataloader = get_fake_loader()
-        else:
-            dataloader = ld.get_loader(
-                    "vcoco_train", ld.COCO_IMGDIR)
-        trainer = md.BasicTrainer(model, dataloader, **vars(cfg))
+        vcoco_all = vu.load_vcoco("vcoco_train")
+        categories = [x["name"] for x in vu.load_coco().cats.itervalues()]
+        translator = ld.VCocoTranslator(vcoco_all, categories)
+        n_action_classes = translator.num_actions
+        n_action_nonagent_roles = translator.num_action_nonagent_roles
+        dataloader = ld.RoiVCocoBoxes(
+                "vcoco_train", pathman.coco_root, pathman.vcoco_root)
+        classes = dataloader.get_classes()
+        model = fhoi.HoiModel(
+                classes, n_action_classes, n_action_nonagent_roles,
+                faster_rcnn_command_line=["NCLASSES", len(classes)],
+                cuda=cfg.cuda)
+        trainer = thoi.HoiTrainer(model, dataloader, **vars(cfg))
         logging.getLogger(__name__).info("Beginning Training...")
         trainer.train(cfg.epochs)
+        """
+    # TODO build this test code.
     elif cfg.mode == 'test':
         checkpoint = torch.load(cfg.net)
         model = checkpoint["model"]
         evaluator = ev.Evaluator(**vars(cfg))
         ev.do_eval(evaluator, model, "vcoco_val", cfg.save_dir)
-
+        """
     else:
         logging.getLogger(__name__).error("Invalid mode '%s'" % str(cfg.mode))
         sys.exit(1)
