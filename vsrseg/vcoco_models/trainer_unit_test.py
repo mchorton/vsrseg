@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 import numpy as np
 
 from faster_rcnn.roi_data_layer.minibatch import get_minibatch
@@ -11,11 +12,9 @@ import vsrl_utils as vu
 class LossTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        #cls.test_dir = tempfile.mkdtemp()
         cls.roi_dataset, cls.classes = ld.get_roi_test_loader()
         # This might include non v-coco classes, but is ok for testing.
         cls.logger = []
-        # TODO this is known!
 
         vcoco_all = vu.load_vcoco("vcoco_train")
 
@@ -27,10 +26,11 @@ class LossTest(unittest.TestCase):
         cls.translator = ld.VCocoTranslator(vcoco_all, categories)
         n_action_classes = cls.translator.num_actions
         n_action_nonagent_roles = cls.translator.num_action_nonagent_roles
+        cls.test_dir = tempfile.mkdtemp()
         cls.model = fhoi.HoiModel(
                 cls.classes, n_action_classes, n_action_nonagent_roles,
                 faster_rcnn_command_line=["NCLASSES", len(cls.classes)],
-                cuda=[0])
+                cuda=[0], save_dir=cls.test_dir)
         cls.loss = thoi.HoiLoss(
                 cls.model, cls.translator, logger_output=cls.logger)
         cls.trainer = thoi.HoiTrainer(cls.model, cls.roi_dataset, cuda=[0])

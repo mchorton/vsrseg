@@ -138,7 +138,8 @@ class VCocoTranslator(object):
 
     def get_action_nonagent_role_locations(self, vcoco_labels):
         """
-        Get a np.ndarray with size [1 x NActionRolesNonagent x 4]
+        Get a np.ndarray with size [1 x NActionRolesNonagent x 5]
+        (The first index of the bounding box is the label)
         """
         ret = np.empty([1, self.num_action_nonagent_roles, 5], dtype=np.float)
         for index, actionrole in enumerate(self.ids_2_actionrolesnonagent):
@@ -315,6 +316,8 @@ class FakeDatasetLoader(object):
         self.data = data
     def __iter__(self):
         return iter(self.data)
+    def __len__(self):
+        return len(self.data)
 
 def make_vcoco_test_loader():
     loader = get_label_loader("vcoco_train", defaultpm.coco_imgs)

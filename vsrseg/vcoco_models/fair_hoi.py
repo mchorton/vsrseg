@@ -20,6 +20,7 @@ class HumanCentricBranch(nn.Module):
         self.roi_pool = RoIPool(pool_size, pool_size, 1.0/16)
         pool_outdim = in_filters * (pool_size ** 2)
         self.feat_2_scores = nn.Linear(pool_outdim, n_action_classes)
+        self.n_action_nonagent_roles = n_action_nonagent_roles
         # Note: dimensionality of the output target localizations is 4
         # TODO should be 4 * number of actions.
         # TODO this model is kinda weird and probably naive.
@@ -35,7 +36,10 @@ class HumanCentricBranch(nn.Module):
         Be sure to only call this on human boxes!
         TODO should I use a new ROI pooling layer?
 
-        Returns: 
+        Returns:
+        - scores: a [n_bboxes X n_action_nonagent_roles] np.ndarray of scores
+        - locations: a [n_bboxes X n_action_nonagent_roles X 4] np.ndarray
+                of locations
         """
         self.cuda() # TODO why is none of model on cuda? Did I bork up?
         pooled_features = self.roi_pool(features, b_h)
@@ -45,7 +49,7 @@ class HumanCentricBranch(nn.Module):
         scores = F.sigmoid(self.feat_2_scores(aligned_features))
         # TODO not 100% certain about this. We probably want some nonlinearity?
         locations = self.feat_2_locations(aligned_features)
-        locations = locations.view(1, -1, 4)
+        locations = locations.view(b_h.size(0), self.n_action_nonagent_roles, 4)
         return scores, locations
         # TODO my return for this thing should probably just be one single big
         # structure.
@@ -162,7 +166,13 @@ def faster_rcnn_forward(
         cross_entropy, loss_box = faster_rcnn.build_loss(
                 cls_score, bbox_pred, roi_data)
         rpn_cross_entropy, rpn_loss_box = rpn_output[2], rpn_output[3]
-        ret += [rpn_cross_entropy, rpn_loss_box, cross_entropy, loss_box]
+        ret += [
+                rpn_cross_entropy,
+                rpn_loss_box,
+                cross_entropy,
+                loss_box,
+                roi_data,
+            ]
     return ret
 
 def human_object_boxes(bbox_pred, cls_prob, class_indices):
@@ -182,10 +192,15 @@ def human_object_boxes(bbox_pred, cls_prob, class_indices):
 
 # Note that, FasterRCNN (used by this) has a global config :( , so trying to 
 # create multiple HoiModels with different FasterRCNN configs will cause issues.
+
+#class FakeHoiModel(nn.Module):
+
+
 class HoiModel(nn.Module):
     def __init__(
             self, classes, n_action_classes, n_action_nonagent_roles, **kwargs):
         super(HoiModel, self).__init__()
+        print "Constructing HOI Model"
 
         faster_rcnn_config = kwargs.get("faster_rcnn_config", None)
         if faster_rcnn_config is not None:
@@ -203,26 +218,6 @@ class HoiModel(nn.Module):
         self.human_centric_branch = HumanCentricBranch(
                 n_action_classes, n_action_nonagent_roles)
         self.interaction_branch = InteractionBranch(n_action_nonagent_roles)
-
-    # TODO what's im_info?
-    def forward(
-            self, im_data, im_info, gt_boxes=None, gt_ishard=None,
-            dontcare_areas=None):
-
-        cls_prob, bbox_pred, rois, features = faster_rcnn_forward(
-                self.detection_branch, im_data, im_info, gt_boxes, gt_ishard,
-                dontcare_areas)
-
-        # Get b_h (human boxes) and b_o (object boxes)
-        b_h, b_o = human_object_boxes(
-                bbox_pred, cls_prob, self.detection_branch.classes)
-
-        h_scores, h_locations = self.human_centric_branch(b_h, features)
-        final_scores = self.interaction_branch(h_scores, b_o, features)
-
-        return h_scores, 
-
-        
 
 '''
 Need:

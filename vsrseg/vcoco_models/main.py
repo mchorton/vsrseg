@@ -1,6 +1,7 @@
 """
 File for running the VCOCO experiment.
 """
+# TODO use the same config as the faster rcnn training code.
 import sys
 import argparse
 import datetime as dt

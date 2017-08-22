@@ -74,7 +74,11 @@ class Trainer(object):
             callback(self)
 
     def fractional_epoch(self):
-        return self.epoch + (1. * self.iteration / len(self.dataloader))
+        return (self.epoch - 1) + (1. * self.iteration / len(self.dataloader))
+
+    def total_iterations(self):
+        print "Calling total_iterations"
+        return (self.epoch - 1) * len(self.dataloader) + self.iteration
 
     def train(self, epochs):
         self.model.train()
@@ -98,7 +102,11 @@ class BasicTrainer(Trainer):
         self.criterion = nn.MSELoss()
         parameters = filter(lambda p: p.requires_grad, self.model.parameters())
         self.optimizer = torch.optim.Adam(parameters, lr=self.learn_rate)
-        self.callbacks = [print_loss, log_error, save_trainer]
+        self.epoch_callbacks = [print_loss, log_error, save_trainer]
+
+        if self.save_dir is not None:
+            self.train_writer = tf.summary.FileWriter(
+                    os.path.join(self.save_dir, "train/"))
 
     def handle_batch(self, data):
         x, y = data
@@ -120,7 +128,7 @@ class TestTrainerRealData(Trainer):
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(
                 self.model.parameters(), lr=self.learn_rate)
-        self.callbacks = [print_loss, log_error, save_trainer]
+        self.epoch_callbacks = [print_loss, log_error, save_trainer]
 
     def handle_batch(self, data):
         x, y = data
